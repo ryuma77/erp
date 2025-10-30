@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test API Manual</title>
+</head>
+<body>
+    <h3>Test Product Vendors API</h3>
+    <button onclick="testCreateVendor()">Test Create Vendor</button>
+    <div id="result"></div>
+
+    <script>
+    function testCreateVendor() {
+        const formData = new FormData();
+        formData.append('action', 'create_vendor_and_link');
+        formData.append('product_id', '22');
+        formData.append('new_vendor_data', JSON.stringify({
+            partner_name: 'Test Vendor Manual',
+            partner_type: 'vendor',
+            contact_person: 'Test Contact',
+            phone: '123456789',
+            email: 'test@vendor.com'
+        }));
+        formData.append('vendor_data', JSON.stringify({
+            cost_price: 100000,
+            lead_time_days: 7,
+            moq: 10,
+            is_primary: true
+        }));
+
+        fetch('/erp/api/product_vendors.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.text())
+        .then(text => {
+            document.getElementById('result').innerHTML = 
+                '<h4>Response:</h4><pre>' + text + '</pre>' +
+                '<h4>Is JSON?:</h4>' + (isJson(text) ? 'YES' : 'NO');
+        })
+        .catch(error => {
+            document.getElementById('result').innerHTML = 'Error: ' + error;
+        });
+    }
+
+    function isJson(str) {
+        try {
+            JSON.parse(str);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+    </script>
+</body>
+</html>
