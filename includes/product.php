@@ -500,19 +500,22 @@ class Product
         }
     }
 
-    /**
-     * Get product vendors dengan join ke partners
-     */
+    // Di method getProductVendors() - tambahkan juga
     public static function getProductVendors($productId)
     {
         try {
             $pdo = Database::getInstance();
 
+            // Load Partner class jika belum
+            if (!class_exists('Partner')) {
+                require_once __DIR__ . '/partner.php';
+            }
+
             $sql = "SELECT pv.*, p.partner_name, p.partner_code, p.contact_person, p.phone, p.email 
-                FROM public.product_vendors pv 
-                JOIN public.partners p ON pv.partner_id = p.id 
-                WHERE pv.product_id = ? 
-                ORDER BY pv.is_primary DESC, p.partner_name";
+            FROM product_vendors pv 
+            JOIN partners p ON pv.partner_id = p.id 
+            WHERE pv.product_id = ? 
+            ORDER BY pv.is_primary DESC, p.partner_name";
             $stmt = $pdo->prepare($sql);
             $stmt->execute([$productId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -522,108 +525,73 @@ class Product
         }
     }
 
-    /**
-     * Add vendor to product
-     */
     public static function addVendor($productId, $partnerId, $data)
     {
         try {
+            error_log("=== PRODUCT::ADDVENDOR ===");
+            error_log("Product: $productId, Partner: $partnerId");
+
             $pdo = Database::getInstance();
 
-            error_log("=== ADD VENDOR METHOD DEBUG ===");
-            error_log("Product ID: $productId, Partner ID: $partnerId");
-            error_log("Vendor Data: " . print_r($data, true));
-
-            // Validasi product exists
-            $product = self::getById($productId);
-            if (!$product) {
-                error_log("ERROR: Product with ID $productId not found");
-                return false;
-            }
-            error_log("Product found: " . $product['product_name']);
-
-            // Validasi partner exists
-            require_once __DIR__ . '/../partner.php';
+            // Check partner exists
             $partner = Partner::getById($partnerId);
             if (!$partner) {
-                error_log("ERROR: Partner with ID $partnerId not found");
+                error_log("❌ Partner not found: $partnerId");
                 return false;
             }
-            error_log("Partner found: " . $partner['partner_name']);
+            error_log("✓ Partner: " . $partner['partner_name']);
 
-            // Cek tabel exists
-            $tableCheck = $pdo->query("SELECT EXISTS (SELECT FROM information_schema.tables 
-                              WHERE table_name = 'product_vendors')")->fetchColumn();
-
-            if (!$tableCheck) {
-                error_log("ERROR: product_vendors table does not exist!");
-                return false;
-            }
-            error_log("Table product_vendors exists");
-
-            // Jika set as primary, update yang lain menjadi non-primary
-            if ($data['is_primary'] ?? false) {
+            // If set as primary, update others
+            // ⬇️ FIX: Convert to proper boolean
+            $isPrimary = filter_var($data['is_primary'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            if ($isPrimary) {
+                error_log("Setting as primary vendor");
                 $updateSql = "UPDATE product_vendors SET is_primary = false WHERE product_id = ?";
                 $updateStmt = $pdo->prepare($updateSql);
-                $updateResult = $updateStmt->execute([$productId]);
-                error_log("Primary vendor update result: " . ($updateResult ? 'SUCCESS' : 'FAILED'));
+                $updateStmt->execute([$productId]);
             }
 
-            // Simple insert approach
+            // Try to insert
             $sql = "INSERT INTO product_vendors (
             product_id, partner_id, lead_time_days, cost_price, moq, is_primary, notes
         ) VALUES (?, ?, ?, ?, ?, ?, ?)";
 
             $stmt = $pdo->prepare($sql);
 
+            // ⬇️ FIX: Convert all values to proper types
             $params = [
-                $productId,
-                $partnerId,
-                $data['lead_time_days'] ?? 0,
-                $data['cost_price'] ?? 0,
-                $data['moq'] ?? 1,
-                $data['is_primary'] ?? false,
+                (int)$productId,
+                (int)$partnerId,
+                (int)($data['lead_time_days'] ?? 0),
+                (float)($data['cost_price'] ?? 0),
+                (int)($data['moq'] ?? 1),
+                $isPrimary, // ⬅️ SEKARANG SUDAH BOOLEAN
                 $data['notes'] ?? null
             ];
 
-            error_log("Executing SQL with params: " . print_r($params, true));
+            error_log("Fixed Params: " . print_r($params, true));
 
             $result = $stmt->execute($params);
             error_log("Execute result: " . ($result ? 'SUCCESS' : 'FAILED'));
 
-            if (!$result) {
-                $errorInfo = $stmt->errorInfo();
-                error_log("SQL Error Info: " . print_r($errorInfo, true));
-
-                // Jika duplicate, consider success
-                if (isset($errorInfo[0]) && $errorInfo[0] === '23505') {
-                    error_log("Duplicate entry - considering as success");
-                    return true;
-                }
-            } else {
+            if ($result) {
                 $rowCount = $stmt->rowCount();
-                error_log("Rows affected: " . $rowCount);
-            }
-
-            return $result;
-        } catch (PDOException $e) {
-            error_log("Product::addVendor() PDO Exception: " . $e->getMessage());
-            error_log("Error Code: " . $e->getCode());
-            error_log("SQL State: " . $e->errorInfo[0] ?? 'unknown');
-
-            // Handle duplicate entry
-            if ($e->getCode() === '23505' || ($e->errorInfo[0] ?? '') === '23505') {
-                error_log("Duplicate entry detected - returning success");
+                error_log("✓ Rows affected: " . $rowCount);
                 return true;
+            } else {
+                $errorInfo = $stmt->errorInfo();
+                error_log("❌ SQL Error: " . print_r($errorInfo, true));
+                return false;
             }
-
+        } catch (PDOException $e) {
+            error_log("❌ PDO Exception: " . $e->getMessage());
+            error_log("Error Code: " . $e->getCode());
             return false;
         } catch (Exception $e) {
-            error_log("Product::addVendor() General Exception: " . $e->getMessage());
+            error_log("❌ General Exception: " . $e->getMessage());
             return false;
         }
     }
-
     /**
      * Remove vendor from product
      */
